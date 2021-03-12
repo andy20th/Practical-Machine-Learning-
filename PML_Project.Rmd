@@ -1,0 +1,130 @@
+---
+title: "PML_Project"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(caret)
+library(rattle)
+```
+
+## Data Preparation
+
+###Load Data
+
+```{r }
+#load data
+training<-read.csv("/Users/Andreas/Library/Mobile Documents/com~apple~CloudDocs/Kurse/2020_11-2021_03 Data Science Statistics and Machine Learning_John Hopkins University/DataScienceSpec_Course8_Practical Machine Learning/Project/pml-training.csv")
+testing<-read.csv("/Users/Andreas/Library/Mobile Documents/com~apple~CloudDocs/Kurse/2020_11-2021_03 Data Science Statistics and Machine Learning_John Hopkins University/DataScienceSpec_Course8_Practical Machine Learning/Project/pml-testing.csv")
+```
+
+### Data Cleaning and Partition
+
+The dataset has the following dimension:
+```{r  }
+dim(training)
+```
+
+However many variables seem empty or NA. This is expected since the excercise movement is quire limited. Empty colums will be removed. For removal a cutoff of 0.97 was used, after experimenting with suitable cutoffs
+
+```{r}
+# identify empty columns
+index.empty.train<-which(colSums(is.na(training)|training=="")>0.97*dim(training)[1])
+index.empty.test<-which(colSums(is.na(testing)|testing=="")>0.97*dim(testing)[1])
+#check for differences between training and testing set
+all(index.empty.test %in% index.empty.train)
+```
+
+The same elemnts are empty in both the testing and training dataset. Therefore these values can be deleted
+
+```{r  }
+clean.train<-training[,-index.empty.train]
+clean.test<-testing[,-index.empty.train]
+#also delete columns for housekeeping
+clean.train<-clean.train[,-c(1:7)]
+clean.test<-clean.test[,-c(1:7)]
+#remove project_id column from clean.test since it seems non-random (however, it does not affect the final prediction)
+clean.test <- clean.test[,-which(names(clean.test)=="problem_id")]
+dim(clean.train)
+dim(clean.test)
+
+```
+
+The features of test and training set have been reduced from 160 to 53.
+
+
+## Modeling
+
+In this section training data will be partitioned in a training and validation set,cross validation is set up and predictions of a number of algorithms are tested
+
+### Data Partition
+
+Training data (clean.train) will be partitioned on a training set containing 75% of the data and a validation set contining 25% of the data. The split will be based on the manner participants did the excercise based on the values in the "classe" column
+
+```{r  }
+trainset.index<-createDataPartition(clean.train$classe,p=0.75,list=FALSE)
+trainset<-clean.train[trainset.index,]
+valset<-clean.train[-trainset.index,]
+dim(trainset)
+dim(valset)
+```
+
+### Cross Validation
+
+Cross-Validation is used by training the model muliple times on different proportions of the designated training set (trainset) to obtain better predictions and limit overfitting. For this project data will be partitioned in 5 different folds to limit computation time.
+
+```{r  }
+#Cross validation settings
+cross.val <- trainControl(method="cv", number=5)
+```
+
+### Classification Tree
+
+Since Generlized Linear Models can only be used for 2-class outcomes. Modeling with a classification tree is tested first.
+
+```{r  }
+#Training classification tree
+CT.fit<-train(classe~.,data=trainset,trControl=cross.val, method="rpart")
+fancyRpartPlot(CT.fit$finalModel)
+```
+
+
+
+```{r  }
+CT.pred<-predict(CT.fit,newdata=valset)
+CM.CT<-confusionMatrix(CT.pred,valset$classe)
+CM.CT
+```
+
+Accuracy is around 50%. This is pretty low. Therefore, other algorithms will be tried to see if it is possible to obtain a better performance-
+
+### Gradient Boosting Method (gbm)
+
+```{r  }
+GBM.fit<-train(classe~.,data=trainset,trControl=cross.val,method="gbm",verbose=FALSE)
+GBM.pred<- predict(GBM.fit,newdata=valset)
+CM.GBM<-confusionMatrix(GBM.pred,valset$classe)
+CM.GBM
+```
+Accuracy is 96%. Let's also test a random forrest algorithm
+
+### Random Forrest
+
+```{r  }
+RF.fit<-train(classe~.,data=trainset,trControl=cross.val,method="rf",verbose=FALSE)
+RF.pred<-predict(RF.fit,newdata=valset)
+CM.RF<-confusionMatrix(RF.pred,valset$classe)
+CM.RF
+```
+
+The random forrest algorithm results in >99% accuracy. This is the highest accuracy of the tested models. For this project >99% accuracy seems sufficient.
+
+## Predicting the classe of the test set (clean.test)
+
+Out of the three tested algorithms random forrest provided the best accuracy >99%. This model is used to predict the classe of the observation in the test set.
+
+```{r  }
+RF.pred<-predict(RF.fit,newdata=clean.test)
+RF.pred
+```
